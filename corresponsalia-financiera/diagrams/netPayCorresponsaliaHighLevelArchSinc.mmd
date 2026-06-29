@@ -1,0 +1,75 @@
+---
+config:
+  layout: elk
+  theme: base
+  themeVariables:
+    fontSize: 20px
+    clusterBkg: "#ffffff"
+    clusterBorder: "#999999"
+---
+graph TD
+
+    %% CANAL DE ENTRADA (MUNDO FÍSICO)
+    subgraph Canal_Comercios [Canal de Comercios]
+        POS[Terminal POS / Comercio <br>Transacción cash-in/cash-out/Pago Servicio]:::client
+        POS_OPER[Terminal POS / Comercio <br>Consolidación operativa]:::client
+    end
+
+    %% COMPONENTES EXTERNOS / SISTEMAS DE TERCEROS
+    subgraph Externos [Sistemas Externos y Motores Core]
+        Switch_Banco[Switch / Emisor Bancario]:::external
+        Motor_Adquirencia[Motor de Adquirencia Interno]:::external
+    end
+
+    %% CORE BACKEND (FLUJO SÍNCRONO)
+    subgraph Core_Backend [Core Backend - Flujo Síncrono]
+        TES[Transaction Entry Service<br>TES]:::core
+        TOS[Transaction Orchestration Service<br>TOS]:::core
+    end
+
+    %% CORE Connector
+    subgraph Core_Connector [Core Backend - Conectores]
+        BCS[Bank Connector Service<br>BCS<br><i>Resilience4j</i>]:::core
+        ACS[Acquisition Connector Service<br>ACS<br><i>Resilience4j</i>]:::core
+    end
+
+    %% CAPA ASÍNCRONA (COLAPSADA)
+    subgraph Capa_Asincrona [Capa Asíncrona y Conciliaciones]
+        ASYNC[Kafka + Ledger +<br>Conciliación Automática +<br>Conciliación Operativa]:::async
+    end
+
+    %% CAPA DE PERSISTENCIA
+    subgraph Capa_Persistencia [Persistencia Inmutable]
+        TLNoSQL[(Transactional Ledger No-SQL<br>TLNo-SQL)]:::storage
+    end
+
+    %% Camino síncrono feliz
+    POS -->|Envía Operación + Idempotency-Key| TES
+    TES -->|Devuelve último estado| POS
+    TES <-->|Resuelve idempotencia<br>devuelve último estado si existe transacción| TLNoSQL
+    TES -->|Inicia Orquestación| TOS
+
+    %% Banco
+    TOS <-->|Orquesta proceso Banco| BCS
+    BCS <-->|Timeout estricto / Circuit Breaker| Switch_Banco
+
+    %% Adquirencia
+    TOS <-->|Orquesta proceso Adquirencia| ACS
+    ACS <-->|Timeout estricto / Circuit Breaker| Motor_Adquirencia
+
+    %% Resultado síncrono
+    TOS -->|Finaliza Orquestación<br>Devuelve Resultado dentro de los 800 ms| TES
+
+    %% Representación simplificada de la capa asíncrona
+    TOS -.->|Publica eventos| ASYNC
+    POS_OPER -->|Consolidación operativa| ASYNC
+    ASYNC -->|Persistencia de eventos| TLNoSQL
+    ASYNC -.->|Compensaciones y reconciliación| BCS
+    ASYNC -.->|Compensaciones y reconciliación| ACS
+
+    %% Estilos
+    classDef client fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef core fill:#bbf,stroke:#333,stroke-width:2px;
+    classDef async fill:#fdd,stroke:#333,stroke-width:2px;
+    classDef storage fill:#dfd,stroke:#333,stroke-width:2px;
+    classDef external fill:#eee,stroke:#333,stroke-width:1px,stroke-dasharray:5 5;

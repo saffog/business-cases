@@ -1,0 +1,79 @@
+---
+config:
+  layout: elk
+  theme: base
+  themeVariables:
+    fontSize: 20px
+    clusterBkg: "#ffffff"
+    clusterBorder: "#999999"
+---
+graph TD
+
+%% CANAL
+subgraph Canal_Comercios["Canal de Comercios (Colapsado)"]
+    POS["POS / Comercios<br/>Transacciones y Consolidación"]:::client
+end
+
+%% CORE
+subgraph Core_Backend["Core Backend (Colapsado)"]
+    CORE["TES + TOS + BCS + ACS<br/><br/>Orquestación síncrona<br/>Resilience4j<br/>Idempotencia"]:::core
+end
+
+%% EXTERNOS
+subgraph Externos["Sistemas Externos (Colapsado)"]
+    EXT["Switch Bancario<br/>Motor de Adquirencia"]:::external
+end
+
+%% CAPA ASÍNCRONA (DETALLE)
+subgraph Capa_Asincrona["Capa Asíncrona y Conciliaciones"]
+
+    KAF{Bus / Kafka<br/>KAF}:::async
+
+    TLS["Transactional Ledger Service<br/>TLS"]:::async
+
+    TCS["Automated Conciliation Service<br/>TCS"]:::async
+
+    OCS["Operative Conciliation Service<br/>OCS"]:::async
+
+end
+
+%% PERSISTENCIA
+subgraph Persistencia["Persistencia Inmutable"]
+
+    TLNoSQL[(Transactional Ledger No-SQL<br/>TLNo-SQL)]:::storage
+
+end
+
+%% Flujo
+
+POS -->|Solicita operación| CORE
+
+CORE <-->|Banco / Adquirencia| EXT
+
+CORE -.->|Publica eventos| KAF
+
+KAF -.->|Persistencia de eventos| TLS
+
+TLS -->|Ledger Inmutable| TLNoSQL
+
+KAF -.->|Eventos compensatorios| TCS
+
+TCS -->|Compensa Banco| CORE
+
+TCS -->|Compensa Adquirencia| CORE
+
+TCS -.->|Publica resultado| KAF
+
+POS -->|Consolidación manual o periódica| OCS
+
+OCS -->|Consulta Ledger| TLNoSQL
+
+OCS -.->|Publica eventos operativos| KAF
+
+%% Estilos
+
+classDef client fill:#f9f,stroke:#333,stroke-width:2px;
+classDef core fill:#bbf,stroke:#333,stroke-width:2px;
+classDef async fill:#fdd,stroke:#333,stroke-width:2px;
+classDef storage fill:#dfd,stroke:#333,stroke-width:2px;
+classDef external fill:#eee,stroke:#333,stroke-width:1px,stroke-dasharray:5 5;
